@@ -2,6 +2,7 @@ import os
 import json
 import re
 import time
+import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 
@@ -12,24 +13,24 @@ load_dotenv()
 def _get_api_key():
     """
     API key nikalta hai:
+    - Streamlit Cloud: st.secrets se (pehle try)
     - Local: .env file se
-    - Streamlit Cloud: Streamlit secrets se
     """
-    # Try .env first (local)
+    # Try Streamlit secrets first (cloud environment)
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            print("[INFO] Using Streamlit secrets for API key")
+            return st.secrets["GEMINI_API_KEY"]
+    except Exception as e:
+        print(f"[INFO] Streamlit secrets not available: {e}")
+
+    # Fallback to .env (local)
     key = os.environ.get("GEMINI_API_KEY")
     if key:
+        print("[INFO] Using .env for API key")
         return key
 
-    # Try Streamlit secrets (cloud)
-    try:
-        import streamlit as st
-        return st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        raise ValueError(
-            "GEMINI_API_KEY not found. "
-            "Local: .env file mein daalo. "
-            "Cloud: Streamlit secrets mein daalo."
-        )
+    raise ValueError("GEMINI_API_KEY not found anywhere")
 
 
 client = genai.Client(api_key=_get_api_key())
