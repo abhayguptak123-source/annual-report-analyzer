@@ -5,18 +5,48 @@ import time
 from dotenv import load_dotenv
 from google import genai
 
+# Load .env for local development
 load_dotenv()
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+def _get_api_key():
+    """
+    API key nikalta hai:
+    - Local: .env file se
+    - Streamlit Cloud: Streamlit secrets se
+    """
+    # Try .env first (local)
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
+
+    # Try Streamlit secrets (cloud)
+    try:
+        import streamlit as st
+        return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        raise ValueError(
+            "GEMINI_API_KEY not found. "
+            "Local: .env file mein daalo. "
+            "Cloud: Streamlit secrets mein daalo."
+        )
+
+
+client = genai.Client(api_key=_get_api_key())
+
+# Multi-model fallback list
 MODELS = [
     "gemini-flash-latest",
     "gemini-2.5-flash",
     "gemini-3.5-flash",
 ]
 
+
 def _call_gemini(prompt, max_retries=3):
-    """Gemini ko call karta hai — har model try karta hai, retry ke saath."""
+    """
+    Gemini ko call karta hai — har model try karta hai, retry ke saath.
+    Agar ek model busy ho, doosra try karta hai.
+    """
     last_error = None
 
     for model_name in MODELS:
@@ -26,12 +56,13 @@ def _call_gemini(prompt, max_retries=3):
                     model=model_name,
                     contents=prompt,
                 )
-                print(f"  [OK] Model: {model_name}")
+                print(f"  [OK] Model used: {model_name}")
                 return response.text.strip()
             except Exception as e:
                 err_msg = str(e)
                 last_error = err_msg
 
+                # Server busy - retry
                 if "503" in err_msg or "429" in err_msg or "UNAVAILABLE" in err_msg:
                     if attempt < max_retries:
                         wait = attempt * 5
@@ -39,17 +70,23 @@ def _call_gemini(prompt, max_retries=3):
                         time.sleep(wait)
                         continue
                     else:
-                        print(f"  [FAIL] {model_name} 3 tries ke baad fail. Next model try...")
+                        print(f"  [FAIL] {model_name} 3 tries ke baad fail. Next model...")
                         break
                 else:
+                    # Koi aur error - seedha raise
                     raise
 
     raise Exception(f"Sab models fail. Last error: {last_error}")
 
 
 def extract_ratios_with_ai(company_name, pdf_text):
-    """PDF text se Gemini AI ke through ratios nikalwata hai."""
+    """
+    PDF text se Gemini AI ke through 10 ratios nikalwata hai.
+    Return: dict with all ratios
+    """
+    # Sirf pehle 80000 characters bhejte hain (AI ka token limit)
     text_chunk = pdf_text[:80000]
+
     prompt = f"""You are a financial analyst. From the following annual report text of {company_name}, extract these 10 financial ratios:
 
 1. P/E Ratio (Price to Earnings) - key: "pe"
@@ -79,7 +116,7 @@ Return ONLY the JSON object:"""
     try:
         raw = _call_gemini(prompt)
 
-        # Markdown strip karo
+        # Markdown code block strip karo agar hai
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
@@ -99,18 +136,32 @@ Return ONLY the JSON object:"""
         }
     except json.JSONDecodeError as e:
         print(f"[AI JSON ERROR] {company_name}: {e}")
-        return {"pe": None, "debt_equity": None, "roe": None}
+        return {
+            "pe": None, "debt_equity": None, "roe": None, "roa": None,
+            "current_ratio": None, "operating_margin": None, "net_margin": None,
+            "eps": None, "book_value": None, "dividend_yield": None,
+        }
     except Exception as e:
         print(f"[AI RATIO ERROR] {company_name}: {e}")
-        return {"pe": None, "debt_equity": None, "roe": None}
+        return {
+            "pe": None, "debt_equity": None, "roe": None, "roa": None,
+            "current_ratio": None, "operating_margin": None, "net_margin": None,
+            "eps": None, "book_value": None, "dividend_yield": None,
+        }
 
 
 def generate_summary(company_name, ratios):
-    """Gemini se 2-line summary banwata hai."""
+    """
+    Gemini se 2-line summary banwata hai based on ratios.
+    """
     prompt = f"""You are a financial analyst. Given these ratios for {company_name}:
 - P/E: {ratios.get('pe')}
 - Debt/Equity: {ratios.get('debt_equity')}
 - ROE: {ratios.get('roe')}%
+- ROA: {ratios.get('roa')}%
+- Current Ratio: {ratios.get('current_ratio')}
+- Operating Margin: {ratios.get('operating_margin')}%
+- Net Margin: {ratios.get('net_margin')}%
 
 Write EXACTLY 2 lines:
 Line 1: Valuation + leverage takeaway.
