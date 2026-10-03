@@ -2,7 +2,6 @@ import os
 import json
 import re
 import time
-import streamlit as st
 from dotenv import load_dotenv
 from google import genai
 
@@ -12,36 +11,40 @@ load_dotenv()
 
 def _get_api_key():
     """
-    API key nikalta hai:
-    - Streamlit Cloud: st.secrets se (pehle try)
-    - Local: .env file se
+    API key nikalta hai — multiple sources try karta hai:
+    1. Streamlit secrets (cloud) — highest priority
+    2. Environment variable (local .env)
+    3. Streamlit secrets as dict
     """
-    # Try Streamlit secrets first (cloud environment)
+    # Priority 1: Streamlit Cloud secrets
     try:
-        if "GEMINI_API_KEY" in st.secrets:
-            print("[INFO] Using Streamlit secrets for API key")
+        import streamlit as st
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
-    except Exception as e:
-        print(f"[INFO] Streamlit secrets not available: {e}")
+    except Exception:
+        pass
 
-    # Fallback to .env (local)
+    # Priority 2: Environment variable (.env)
     key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        print("[INFO] Using .env for API key")
-        return key
+    if key and key.strip():
+        return key.strip()
 
-    raise ValueError("GEMINI_API_KEY not found anywhere")
+    # Nothing found
+    raise ValueError(
+        "GEMINI_API_KEY not found. "
+        "Local: check .env file. "
+        "Cloud: check Streamlit secrets."
+    )
 
 
 client = genai.Client(api_key=_get_api_key())
 
 # Multi-model fallback list
 MODELS = [
-    "gemini-flash-latest",
-    "gemini-2.5-flash",
+    "gemini-3.8-flash",
     "gemini-3.5-flash",
+    "gemini-flash-latest",
 ]
-
 
 def _call_gemini(prompt, max_retries=3):
     """
