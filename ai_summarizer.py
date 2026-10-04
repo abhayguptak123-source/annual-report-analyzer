@@ -41,8 +41,8 @@ client = genai.Client(api_key=_get_api_key())
 
 # Multi-model fallback list
 MODELS = [
-    "gemini-3.8-flash",
     "gemini-3.5-flash",
+    "gemini-3.8-flash",
     "gemini-flash-latest",
 ]
 
